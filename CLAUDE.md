@@ -30,6 +30,8 @@ agent-driven development, so keep changes small, tested, and easy to review.
 - `supabase/migrations/`: the only way to change the schema
 
 ## Rules
+- Never bypass the pre-commit hook (`--no-verify`, `-n`, `HUSKY=0`). Fix the
+  errors it reports; if the hook seems wrong, ask the user. See AGENTS.md.
 - Never edit `src/types/database.ts` by hand; run `pnpm db:types`.
 - Never change the schema outside a migration. Every table gets RLS enabled
   with policies scoped to `auth.uid()` in the same migration.

@@ -13,7 +13,15 @@
       "Bash(pnpm exec biome *)",
       "Bash(pnpm exec vitest *)"
     ],
-    "deny": ["Read(./.env.local)", "Read(./.env.*.local)"]
+    "deny": [
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Bash(git commit *--no-verify*)",
+      "Bash(git commit -n*)",
+      "Bash(git push *--no-verify*)",
+      "Bash(*HUSKY=0*)",
+      "Bash(git *core.hooksPath*)"
+    ]
   },
   "hooks": {
     "PostToolUse": [
