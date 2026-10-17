@@ -47,7 +47,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - With Cache Components, anything reading cookies (i.e. the Supabase server
   client) must render inside `<Suspense>`; don't await it at a layout's top level.
 - Validate all Server Action input with Zod.
-- Never read or print `.env.local`; only `.env.example` is committed.
+- Never read or print `.env.local` or `supabase/.env`; only the `.env.example`
+  files (root for Next.js, `supabase/` for the Supabase CLI) are committed.
 
 ## Git hooks
 
