@@ -11,7 +11,7 @@ Ship the current work as a pull request. Extra notes from the user (may be empty
 ## Current state
 
 - Branch: !`git branch --show-current`
-- Status: !`git status --short`
+- Status: !`git status --short --branch`
 - Diff vs HEAD: !`git diff HEAD --stat`
 - Commits ahead of main: !`git log --oneline main..HEAD`
 
@@ -25,8 +25,11 @@ cat .github/pull_request_template.md
 
 Stop and report to the user at any step that fails. Do not skip ahead.
 
-1. **Nothing to ship?** If there are no uncommitted changes and no commits ahead
-   of `main`, say so and stop.
+1. **Nothing to ship?** Stop and say so if either:
+   - there are no uncommitted changes and no commits ahead of `main`; or
+   - there are no uncommitted changes, the branch is fully pushed (the first
+     Status line shows an `origin/<branch>` upstream with no `[ahead N]`), and
+     `gh pr view --json url,state` shows an `OPEN` PR. Report that PR's URL.
 2. **Branch.** If on `main`, create a branch first: `<type>/<short-kebab-name>`,
    where type is `feat`, `fix`, `chore`, `docs`, `refactor`, or `test`, based
    on the changes. Never commit or push directly to `main`.
@@ -36,7 +39,8 @@ Stop and report to the user at any step that fails. Do not skip ahead.
    any untracked files). Stop and ask if you see secrets, `.env.local`, build
    output, or changes that look unrelated to the rest. Stage files by name
    with `git add <paths>`.
-5. **Commit.** Write the message to a temp file and commit with
+5. **Commit.** If there are no uncommitted changes (the branch only has
+   unpushed commits), skip to step 6. Otherwise write the message to a temp file and commit with
    `git commit -F <file>`:
    - Subject: imperative mood, max ~72 characters, says *what* changed
      (e.g. "Add applications table with RLS policies").
