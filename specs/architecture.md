@@ -39,8 +39,7 @@ Everything else goes through Next.js.
 
 | Route | Kind | Purpose | Stories |
 |---|---|---|---|
-| `/` | page | Overview table, filters, reminders | US-4, 5, 16, 17 |
-| `/applications/new` | page | New application form | US-3 |
+| `/` | page | Overview table, filters, reminders, new application form | US-3, 4, 5, 16, 17 |
 | `/applications/[id]` | page | Detail view, edit form, history, interviews | US-6–9, 11, 13, 15 |
 | `/documents` | page | Document library | US-12, 14 |
 | `/documents/[id]/file` | route handler | Redirects to a short-lived signed URL | US-12 |
@@ -282,6 +281,12 @@ Encoding is a pure function in `src/features/export/`:
 
 - shadcn/ui components. Forms use `useActionState` and show field errors
   from `ActionResult`.
+- New application: a "New application" button on the overview opens the form
+  in a dialog (a full-screen sheet below `md`), and so does the empty
+  state's link. It holds only the creation fields (company, role, and the
+  optional basics). Everything else is edited on the detail page. On
+  success the dialog closes and the table refreshes. There's no separate
+  route.
 - Overview: a table at `md` and up. Below `md` it collapses to stacked rows
   showing company, role, stage, and next action (US-19). Filters are links
   or selects that update search params.
