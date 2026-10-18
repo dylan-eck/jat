@@ -17,6 +17,7 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:migration": "supabase migration new",
+    "test:db": "supabase test db",
     "db:types": "supabase gen types typescript --local > src/types/database.ts && biome format --write src/types/database.ts",
     "prepare": "husky"
   },
