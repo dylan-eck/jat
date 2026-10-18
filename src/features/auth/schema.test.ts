@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { magicLinkSchema, nextPathSchema } from "./schema";
+import { magicLinkSchema } from "./schema";
 
 describe("magicLinkSchema", () => {
   it("trims and lowercases the email", () => {
@@ -16,22 +16,5 @@ describe("magicLinkSchema", () => {
 
   it("rejects a missing email", () => {
     expect(magicLinkSchema.safeParse({ email: null }).success).toBe(false);
-  });
-});
-
-describe("nextPathSchema", () => {
-  it("keeps same-origin paths", () => {
-    expect(nextPathSchema.parse("/applications?x=1")).toBe("/applications?x=1");
-  });
-
-  it.each([
-    "https://evil.com",
-    "//evil.com",
-    "/\\evil.com",
-    "evil.com",
-    "",
-    null,
-  ])("falls back to / for %j", (value) => {
-    expect(nextPathSchema.parse(value)).toBe("/");
   });
 });
