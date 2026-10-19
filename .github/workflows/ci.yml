@@ -36,3 +36,28 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # Installs the Supabase CLI (a devDependency) and Biome.
+      - run: pnpm install --frozen-lockfile
+
+      # Start only what the tests and type generation need.
+      - run: pnpm exec supabase start -x realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor
+      - run: pnpm exec supabase db reset
+      - run: pnpm exec supabase test db
+
+      # Regenerate types and fail if they differ from the committed file.
+      - run: pnpm exec supabase gen types typescript --local > src/types/database.ts && pnpm exec biome format --write src/types/database.ts
+      - run: git diff --exit-code src/types/database.ts
