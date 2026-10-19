@@ -80,6 +80,7 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      initialize_user: { Args: { uid: string }; Returns: undefined };
       is_valid_time_zone: { Args: { tz: string }; Returns: boolean };
     };
     Enums: {

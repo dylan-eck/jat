@@ -73,6 +73,28 @@ grant insert (name, position), update (name, position) on public.stages to authe
 
 -- signup trigger ---------------------------------------------------------
 
+-- Creates a user's profile and default stages. Used by the signup trigger and
+-- by the backfill below.
+create function public.initialize_user(uid uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.profiles (user_id) values (uid);
+
+  insert into public.stages (user_id, name, position)
+  values
+    (uid, 'Wishlist', 0),
+    (uid, 'Applied', 1),
+    (uid, 'Interviewing', 2),
+    (uid, 'Offer', 3);
+end;
+$$;
+
+revoke execute on function public.initialize_user(uuid) from public, anon, authenticated;
+
 create function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -80,15 +102,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.profiles (user_id) values (new.id);
-
-  insert into public.stages (user_id, name, position)
-  values
-    (new.id, 'Wishlist', 0),
-    (new.id, 'Applied', 1),
-    (new.id, 'Interviewing', 2),
-    (new.id, 'Offer', 3);
-
+  perform public.initialize_user(new.id);
   return new;
 end;
 $$;
@@ -98,3 +112,9 @@ revoke execute on function public.handle_new_user() from public, anon, authentic
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Accounts created before this migration (sign-in shipped in #5) never fired
+-- the trigger, so seed them now.
+select public.initialize_user(u.id)
+from auth.users u
+where not exists (select 1 from public.profiles p where p.user_id = u.id);

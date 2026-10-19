@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(16);
 
 -- Two users; the signup trigger creates their profiles and stages.
 insert into auth.users (id, instance_id, aud, role, email)
@@ -23,6 +23,29 @@ select results_eq(
   $$select position from public.stages where user_id = '00000000-0000-0000-0000-00000000000a' order by position$$,
   $$values (0), (1), (2), (3)$$,
   'default stage positions are 0..3');
+
+-- Backfill: an account created before the migration (trigger not fired) gets
+-- seeded by the migration's backfill query, and seeded users are left alone.
+set local session_replication_role = replica;
+insert into auth.users (id, instance_id, aud, role, email)
+values ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'c@example.com');
+set local session_replication_role = origin;
+
+select is(
+  (select count(*)::int from public.profiles where user_id = '00000000-0000-0000-0000-00000000000c'),
+  0, 'pre-migration user starts without a profile');
+
+select public.initialize_user(u.id)
+from auth.users u
+where not exists (select 1 from public.profiles p where p.user_id = u.id);
+
+select results_eq(
+  $$select name from public.stages where user_id = '00000000-0000-0000-0000-00000000000c' order by position$$,
+  $$values ('Wishlist'), ('Applied'), ('Interviewing'), ('Offer')$$,
+  'backfill gives a pre-migration user the four default stages');
+select is(
+  (select count(*)::int from public.stages where user_id = '00000000-0000-0000-0000-00000000000a'),
+  4, 'backfill does not duplicate stages for already-seeded users');
 
 -- RLS as user A
 set local role authenticated;
