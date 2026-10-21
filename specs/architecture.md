@@ -236,7 +236,7 @@ modules, never in `"use server"` files, which the browser can call.
 - Postgres errors are mapped in one place (`src/lib/action-result.ts`),
   reading the code from `error.cause ?? error` because Drizzle wraps `pg`
   errors, e.g.:
-  - `23503` FK violation on stage/document delete → "Used by N applications"
+  - `23001` restrict violation on stage/document delete → "Used by N applications"
     (the action then queries which ones)
   - `23503` on insert/update → "Invalid stage or document", which also
     covers attempts to reference another user's rows
