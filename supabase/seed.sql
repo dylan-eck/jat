@@ -1,1 +1,0 @@
--- Local dev seed data. Runs after migrations on `pnpm db:reset`.

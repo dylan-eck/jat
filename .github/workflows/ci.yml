@@ -17,9 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # Build-time placeholders; CI never talks to a real Supabase project.
-      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+      # Build-time placeholders; this job never talks to a database.
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+      NEON_AUTH_BASE_URL: https://example.invalid/neondb/auth
+      NEON_AUTH_COOKIE_SECRET: ci-placeholder-secret-at-least-32-chars
     steps:
       - uses: actions/checkout@v7
 
@@ -50,14 +51,37 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      # Installs the Supabase CLI (a devDependency) and Biome.
       - run: pnpm install --frozen-lockfile
 
-      # Start only what the tests and type generation need.
-      - run: pnpm exec supabase start -x realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor
-      - run: pnpm exec supabase db reset
-      - run: pnpm exec supabase test db
+      # Fails if the schema changed without a matching migration.
+      - name: Check migrations match the schema
+        run: |
+          pnpm db:generate
+          git add --intent-to-add drizzle
+          git diff --exit-code drizzle
 
-      # Regenerate types and fail if they differ from the committed file.
-      - run: pnpm exec supabase gen types typescript --local > src/types/database.ts && pnpm exec biome format --write src/types/database.ts
-      - run: git diff --exit-code src/types/database.ts
+      # A throwaway branch of the primary branch. It expires after an hour in
+      # case the delete step below never runs.
+      - id: expiry
+        run: echo "at=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - id: branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          expires_at: ${{ steps.expiry.outputs.at }}
+
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL_UNPOOLED: ${{ steps.branch.outputs.db_url }}
+      - run: pnpm test:db
+        env:
+          DATABASE_URL: ${{ steps.branch.outputs.db_url_pooled }}
+
+      - if: always() && steps.branch.outputs.branch_id
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch: ${{ steps.branch.outputs.branch_id }}

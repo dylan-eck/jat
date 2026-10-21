@@ -9,14 +9,13 @@
       "Bash(pnpm test *)",
       "Bash(pnpm check)",
       "Bash(pnpm build)",
-      "Bash(pnpm db:types)",
+      "Bash(pnpm db:generate *)",
       "Bash(pnpm exec biome *)",
       "Bash(pnpm exec vitest *)"
     ],
     "deny": [
       "Read(./.env.local)",
       "Read(./.env.*.local)",
-      "Read(./supabase/.env)",
       "Bash(git commit *--no-verify*)",
       "Bash(git commit -n*)",
       "Bash(git push *--no-verify*)",
