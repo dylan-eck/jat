@@ -14,7 +14,7 @@
 
 - [ ] `pnpm check` passes locally
 - [ ] Tests added or updated for new behavior
-- [ ] Schema changes are in a migration, with RLS policies, and `pnpm db:types` was rerun
+- [ ] Schema changes are in `src/lib/db/schema.ts` with a generated migration, and `pnpm test:db` passes
 - [ ] No secrets or `.env.local` values committed
 - [ ] UI changes include a screenshot
 

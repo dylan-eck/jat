@@ -12,7 +12,7 @@ import {
 
 const initialState: MagicLinkState = { status: "idle" };
 
-export function LoginForm() {
+export function LoginForm({ showGitHub }: { showGitHub: boolean }) {
   const [state, formAction, pending] = useActionState(
     sendMagicLink,
     initialState,
@@ -52,17 +52,21 @@ export function LoginForm() {
         </Button>
       </form>
 
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="h-px flex-1 bg-border" />
-        or
-        <span className="h-px flex-1 bg-border" />
-      </div>
+      {showGitHub ? (
+        <>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            or
+            <span className="h-px flex-1 bg-border" />
+          </div>
 
-      <form action={signInWithGitHub}>
-        <Button type="submit" variant="outline" className="w-full">
-          Continue with GitHub
-        </Button>
-      </form>
+          <form action={signInWithGitHub}>
+            <Button type="submit" variant="outline" className="w-full">
+              Continue with GitHub
+            </Button>
+          </form>
+        </>
+      ) : null}
     </div>
   );
 }
