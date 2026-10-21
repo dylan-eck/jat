@@ -1,14 +1,16 @@
 import { Suspense } from "react";
-import { ApplicationList } from "@/features/applications/components/ApplicationList";
+import { ApplicationTable } from "@/features/applications/components/ApplicationTable";
+import { EmptyApplications } from "@/features/applications/components/EmptyApplications";
 import { NewApplicationDialog } from "@/features/applications/components/NewApplicationDialog";
 import { listApplications } from "@/features/applications/queries";
+import { overviewSearchParamsSchema } from "@/features/applications/schema";
 import { SignOutButton } from "@/features/auth/components/SignOutButton";
 import { requireUser } from "@/features/auth/queries";
 import { listStages } from "@/features/stages/queries";
 
-export default function Home() {
+export default function Home({ searchParams }: PageProps<"/">) {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
       <h1 className="text-3xl font-semibold tracking-tight">
         Job Application Tracker
       </h1>
@@ -22,7 +24,7 @@ export default function Home() {
           <p className="text-muted-foreground">Loading applications…</p>
         }
       >
-        <Overview />
+        <Overview searchParams={searchParams} />
       </Suspense>
     </main>
   );
@@ -41,9 +43,12 @@ async function Account() {
   );
 }
 
-async function Overview() {
+async function Overview({
+  searchParams,
+}: Pick<PageProps<"/">, "searchParams">) {
+  const order = overviewSearchParamsSchema.parse(await searchParams);
   const [applications, stages] = await Promise.all([
-    listApplications(),
+    listApplications(order),
     listStages(),
   ]);
   return (
@@ -52,7 +57,11 @@ async function Overview() {
         <h2 className="text-xl font-semibold">Applications</h2>
         <NewApplicationDialog stages={stages} />
       </div>
-      <ApplicationList applications={applications} />
+      {applications.length === 0 ? (
+        <EmptyApplications stages={stages} />
+      ) : (
+        <ApplicationTable applications={applications} order={order} />
+      )}
     </section>
   );
 }

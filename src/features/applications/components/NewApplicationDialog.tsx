@@ -23,12 +23,22 @@ import { Label } from "@/components/ui/label";
 import type { StageOption } from "@/features/stages/queries";
 import { createApplication } from "../actions";
 
-export function NewApplicationDialog({ stages }: { stages: StageOption[] }) {
+export function NewApplicationDialog({
+  stages,
+  variant,
+  children = "New application",
+}: {
+  stages: StageOption[];
+  variant?: "default" | "link";
+  children?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button />}>New application</DialogTrigger>
+      <DialogTrigger render={<Button variant={variant} />}>
+        {children}
+      </DialogTrigger>
       {/* Full-screen sheet below md, centered dialog from md up. */}
       <DialogContent className="inset-0 top-0 left-0 h-dvh max-w-none translate-x-0 translate-y-0 content-start overflow-y-auto rounded-none sm:max-w-none md:inset-auto md:top-1/2 md:left-1/2 md:h-auto md:max-h-[calc(100dvh-2rem)] md:max-w-md md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl">
         <DialogHeader>
