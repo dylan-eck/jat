@@ -4,7 +4,7 @@ import { initializeUser } from "@/features/stages/initialize";
 import { applicationEvents, applications, stages } from "@/lib/db/schema";
 import { createTestUser, db, deleteTestUsers, pgErrorCode } from "@/test/db";
 import { createApplication } from "./actions";
-import { listApplications } from "./queries";
+import { getApplication, listApplications } from "./queries";
 
 // The action and query read the signed-in user from the session; tests set
 // it directly.
@@ -55,7 +55,11 @@ function eventsOf(applicationId: string) {
 }
 
 // Inserts an application directly, as another user's existing data.
-async function insertApplication(userId: string, stage: string) {
+async function insertApplication(
+  userId: string,
+  stage: string,
+  values: Partial<typeof applications.$inferInsert> = {},
+) {
   const [row] = await db
     .insert(applications)
     .values({
@@ -63,6 +67,7 @@ async function insertApplication(userId: string, stage: string) {
       company: "Acme",
       roleTitle: "Developer",
       stageId: await stageId(userId, stage),
+      ...values,
     })
     .returning();
   if (!row) {
@@ -180,6 +185,89 @@ describe("listApplications", () => {
       [second.id, "Applied"],
       [first.id, "Wishlist"],
     ]);
+  });
+
+  describe("sorting", () => {
+    // Inserted oldest first: beta, alpha, Gamma.
+    async function threeApplications() {
+      const userId = await signedInUser();
+      await insertApplication(userId, "Interviewing", {
+        company: "beta",
+        roleTitle: "Designer",
+        appliedOn: "2026-10-01",
+      });
+      await insertApplication(userId, "Wishlist", {
+        company: "alpha",
+        roleTitle: "engineer",
+        status: "closed",
+      });
+      await insertApplication(userId, "Applied", {
+        company: "Gamma",
+        roleTitle: "Analyst",
+        appliedOn: "2026-09-15",
+      });
+    }
+
+    async function companies(order: Parameters<typeof listApplications>[0]) {
+      return (await listApplications(order)).map((a) => a.company);
+    }
+
+    it.each([
+      ["company", "asc", ["alpha", "beta", "Gamma"]],
+      ["company", "desc", ["Gamma", "beta", "alpha"]],
+      ["role_title", "asc", ["Gamma", "beta", "alpha"]],
+      ["stage", "asc", ["alpha", "Gamma", "beta"]],
+      ["stage", "desc", ["beta", "Gamma", "alpha"]],
+      ["status", "asc", ["Gamma", "beta", "alpha"]],
+      ["status", "desc", ["alpha", "Gamma", "beta"]],
+      ["applied_on", "asc", ["Gamma", "beta", "alpha"]],
+      ["applied_on", "desc", ["beta", "Gamma", "alpha"]],
+    ] as const)("sorts by %s %s", async (sort, dir, expected) => {
+      await threeApplications();
+      expect(await companies({ sort, dir })).toEqual(expected);
+    });
+
+    it("lists the newest first without a sort column", async () => {
+      await threeApplications();
+      expect(await companies({ dir: "desc" })).toEqual([
+        "Gamma",
+        "alpha",
+        "beta",
+      ]);
+    });
+  });
+});
+
+describe("getApplication", () => {
+  it("returns the signed-in user's application with its stage name", async () => {
+    const userId = await signedInUser();
+    const application = await insertApplication(userId, "Applied", {
+      notes: "Referred by Sam",
+    });
+
+    expect(await getApplication(application.id)).toMatchObject({
+      id: application.id,
+      company: "Acme",
+      stageName: "Applied",
+      status: "active",
+      notes: "Referred by Sam",
+    });
+  });
+
+  it("returns null for another user's application", async () => {
+    const other = await signedInUser();
+    const application = await insertApplication(other, "Wishlist");
+    await signedInUser();
+
+    expect(await getApplication(application.id)).toBeNull();
+  });
+
+  it.each([
+    ["an unknown id", "6f1c2d1e-8a4b-4c3d-9e2f-1a2b3c4d5e6f"],
+    ["a malformed id", "not-a-uuid"],
+  ])("returns null for %s", async (_, id) => {
+    await signedInUser();
+    expect(await getApplication(id)).toBeNull();
   });
 });
 
