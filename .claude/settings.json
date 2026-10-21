@@ -16,7 +16,6 @@
     "deny": [
       "Read(./.env.local)",
       "Read(./.env.*.local)",
-      "Read(./supabase/.env)",
       "Bash(git commit *--no-verify*)",
       "Bash(git commit -n*)",
       "Bash(git push *--no-verify*)",
