@@ -23,12 +23,16 @@ export default function LoginPage({ searchParams }: PageProps<"/login">) {
           <Suspense>
             <LoginError searchParams={searchParams} />
           </Suspense>
-          <LoginForm />
+          <LoginForm showGitHub={gitHubSignInAvailable} />
         </CardContent>
       </Card>
     </main>
   );
 }
+
+// Each preview has its own Neon Auth host, which the GitHub OAuth app (set up
+// for production's) won't redirect to. Previews sign in by magic link only.
+const gitHubSignInAvailable = process.env.VERCEL_ENV !== "preview";
 
 async function LoginError({
   searchParams,

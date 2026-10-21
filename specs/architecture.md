@@ -6,34 +6,54 @@ decisions on top of those.
 
 ## Principles
 
-1. **The database is the source of truth for rules.** Ownership, referential
-   rules, stage history, and activity tracking are enforced in Postgres
-   (RLS, constraints, triggers). Server Actions validate input and give
-   friendly errors, but a buggy action can't break an invariant.
-2. **Every read and write runs as the user.** The app only uses the
-   publishable key with the user's session. No service-role key in the
-   Next.js app, so RLS applies to every query.
+1. **Only the server talks to the database.** There is no public data API.
+   Server Components and Server Actions query Postgres through Drizzle, and
+   every query is scoped to `requireUser().id`. A row that belongs to
+   someone else is "not found".
+2. **Constraints are the safety net.** Ownership is enforced by the app, so
+   the database guards what a buggy query could get wrong: composite FKs
+   that include `user_id` reject references to another user's rows, and
+   checks and uniques hold the data rules. Rules that span several writes
+   (stage history, activity tracking) run in one transaction in the Server
+   Action, built from pure functions that are unit-tested.
 3. **Server-first UI.** Pages are Server Components that read through
    `queries.ts`. Client Components exist only for interactivity (forms,
    filters, uploads).
 4. **Pure logic is pulled out and unit-tested.** Date math, CSV encoding,
-   reminder/stale rules, and error mapping are plain functions with Vitest
-   tests. Database behavior is tested with pgTAP.
+   reminder/stale rules, history diffs, and error mapping are plain
+   functions with Vitest tests. Queries, actions, and constraints are tested
+   against a real Neon branch (`*.db.test.ts`).
 
 ## System overview
 
 ```
-Browser ──► Next.js on Vercel ─────────────► Supabase
-  │          proxy.ts (session refresh,        Postgres (RLS, triggers)
-  │                    optimistic redirect)    Auth (magic link, GitHub)
-  │          Server Components → queries.ts    Storage (private "documents"
-  │          Server Actions    → actions.ts             bucket, RLS)
+Browser ──► Next.js on Vercel ─────────────► Neon branch
+  │          proxy.ts (optimistic redirect)    Postgres (Drizzle, pg Pool)
+  │          /api/auth/* ──────────────────►   Auth (magic link, GitHub)
+  │          Server Components → queries.ts    Object Storage (private
+  │          Server Actions    → actions.ts      "documents" bucket)
   │          Route Handlers (CSV, file links)
-  └──────── direct PDF upload ───────────────► Storage
+  └──────── presigned PDF upload ────────────► Object Storage
 ```
 
-PDFs go from the browser straight to Storage (see [Documents](#documents)).
-Everything else goes through Next.js.
+PDFs go from the browser straight to Object Storage (see
+[Documents](#documents)). Everything else goes through Next.js.
+
+Postgres, Auth (users and sessions live in the `neon_auth` schema), and
+Object Storage all branch together:
+
+| Environment | Neon branch | Created by |
+|---|---|---|
+| Production | `production` | Neon project setup |
+| Vercel preview | `preview/<git-branch>`, from `production` | Neon Vercel integration, deleted with the git branch |
+| Local | `dev` (or your own) | `neon checkout` |
+| CI `db` job | `ci-<run>`, expires after 1 hour | `create-branch-action` |
+
+Every Vercel build runs `pnpm db:migrate` against its own branch. Preview
+builds also add their URLs to their branch's Neon Auth trusted domains
+(`scripts/trust-preview-domains.mts`), since Neon Auth only redirects to
+trusted origins. Previews sign in by magic link only: the GitHub OAuth app
+only accepts production's Neon Auth callback.
 
 ## Routes
 
@@ -58,26 +78,28 @@ Follows the AGENTS.md layout. Planned feature modules:
 
 | Module | Owns |
 |---|---|
-| `src/features/applications/` | Application CRUD, overview query, history query |
+| `src/features/applications/` | Application CRUD, overview query, history query, `history.ts` (pure event and activity diff) |
 | `src/features/stages/` | Stage list, add/rename/reorder/delete |
 | `src/features/interviews/` | Interview CRUD |
 | `src/features/documents/` | Upload registration, rename, delete, signed URLs |
 | `src/features/settings/` | Profile (time zone, stale threshold) |
 | `src/features/reminders/` | Pure needs-attention / upcoming / stale logic |
 | `src/features/export/` | CSV encoding |
+| `src/lib/db/schema.ts` | Every table, constraint, and index (migrations are generated from it) |
 | `src/lib/time.ts` | Time zone helpers (today in tz, local ↔ UTC) |
 | `src/lib/action-result.ts` | Shared Server Action result type + Postgres error mapping |
 
 ## Data model
 
-All tables live in `public`, have RLS enabled, and have a `user_id uuid not
-null references auth.users on delete cascade`. Timestamps are `timestamptz`.
+All tables live in `public` and have a `user_id uuid not null references
+neon_auth."user" on delete cascade`. Timestamps are `timestamptz`. There is
+no RLS: nothing outside the server can reach the database.
 
 ### `profiles`
 | Column | Type | Notes |
 |---|---|---|
 | `user_id` | uuid PK | |
-| `time_zone` | text, nullable | IANA name. Null until the browser reports it. Checked against `pg_timezone_names` |
+| `time_zone` | text, nullable | IANA name. Null until the browser reports it. Validated with Zod (`Intl.supportedValuesOf("timeZone")`) |
 | `stale_after_days` | int not null default 14 | `check (stale_after_days between 1 and 365)` |
 
 ### `stages`
@@ -117,14 +139,15 @@ null references auth.users on delete cascade`. Timestamps are `timestamptz`.
 | `work_arrangement` | enum (`onsite`, `hybrid`, `remote`) | |
 | `next_action` | text | |
 | `next_action_due` | date | `check (next_action_due is null or next_action is not null)` |
-| `last_activity_at` | timestamptz not null | Maintained by triggers only |
+| `last_activity_at` | timestamptz not null | Written only by `history.ts` helpers |
 | `created_at`, `updated_at` | timestamptz | |
 
 `unique (id, user_id)` is the target for interviews and history.
 
 The composite foreign keys are how US-2's cross-user write criteria are met.
-RLS only checks the row being written, so a plain `stage_id` FK would accept
-another user's stage. Including `user_id` in the key makes that impossible.
+Actions set `user_id` from the session, so a plain `stage_id` FK would still
+accept another user's stage id. Including `user_id` in the key makes that
+impossible.
 Postgres ignores a composite FK when any of its columns is null
 (`MATCH SIMPLE`), which is what keeps resume and cover letter optional.
 
@@ -149,44 +172,53 @@ Postgres ignores a composite FK when any of its columns is null
 | `from_status`, `to_status` | status enum | |
 | `close_reason` | close reason enum | |
 
-Users can read this table but not write it: RLS allows select only, and
-rows come from a trigger.
+Rows are written only in the same transaction as the application change
+they describe, using `eventFor(before, after, stageNames)` from
+`history.ts`. No action updates or deletes them.
 
-### Column privileges
+### Writable fields
 
-Besides RLS, `authenticated` gets column-level `insert`/`update` grants only
-on user-editable columns. `user_id` is set by a column default
-(`auth.uid()`). `last_activity_at`, `created_at`, `documents.kind`, and
-`documents.storage_path` can't be written directly at all, so these
-invariants hold even if someone calls the Data API directly.
+Each action's Zod schema lists the fields a user can set. `user_id` always
+comes from `requireUser()`, never from input. `last_activity_at`,
+`created_at`, `documents.kind`, and `documents.storage_path` are not in any
+update schema, so they can't change after insert.
 
-## Database-enforced rules
+## Where rules are enforced
+
+### Database constraints
 
 | Rule | Mechanism | Stories |
 |---|---|---|
-| Users see and change only their own rows | RLS `using / with check (user_id = (select auth.uid()))` on every table | US-2 |
 | References point to the user's own stages/documents/applications | Composite FKs including `user_id` | US-2 |
 | Resume/cover letter pickers can't take the wrong kind | Composite FK including generated `*_kind` column | US-13 |
 | In-use stages and documents can't be deleted | `on delete restrict` | US-10, 14 |
-| New users get a profile + default stages | `after insert on auth.users` trigger (security definer) | US-1 |
-| Stage/status changes are recorded with name snapshots | `after insert or update of stage_id, status, close_reason on applications` trigger (security definer, writes `application_events`) | US-3, 6, 7, 8 |
-| `last_activity_at` only moves on real changes | `before update` trigger on `applications`: compares `to_jsonb(new)` and `to_jsonb(old)` without `updated_at`/`last_activity_at`, bumps only if they differ. `after insert/update/delete` trigger on `interviews` bumps the parent (on update, only if the row changed) | US-17 |
-| Stage reorders are atomic | `reorder_stages(ids uuid[])` RPC (security invoker) | US-10 |
+| Field rules (lengths, URL scheme, close reason only when closed, ranges) | `check` constraints | US-3, 6, 17 |
+| Stage names are unique per user, ignoring case | Unique index on `(user_id, lower(name))` | US-10 |
+| Deleting a user deletes their data | `on delete cascade` from `neon_auth."user"` | US-1 |
 
-"At least one stage must remain" is checked in the Server Action, not the
-database. With zero stages nothing breaks, the user just can't create
-applications, and a DB check would get in the way of cascading account
-deletes.
+### Server Actions
 
-Security definer functions use `set search_path = ''` and fully qualified
-names, following Supabase guidance.
+| Rule | Mechanism | Stories |
+|---|---|---|
+| Users see and change only their own rows | Every query filters on `requireUser().id` | US-2 |
+| New users get a profile + default stages | `initializeUser()` in `/auth/callback`, one transaction, idempotent | US-1 |
+| Stage/status changes are recorded with name snapshots | The action writes the application and its `application_events` row in one transaction | US-3, 6, 7, 8 |
+| `last_activity_at` only moves on real changes | `history.ts` compares the user-editable fields before and after, and bumps only if they differ. Interview create/update/delete bumps the parent in the same transaction (on update, only if the row changed) | US-17 |
+| Stage reorders are atomic | One transaction updating every position | US-10 |
+| At least one stage remains | Checked before delete | US-10 |
+
+"At least one stage must remain" is not a database check. With zero stages
+nothing breaks, the user just can't create applications, and a check would
+get in the way of cascading account deletes.
+
+Functions that take a user id (like `initializeUser`) live in `server-only`
+modules, never in `"use server"` files, which the browser can call.
 
 ## Data flow
 
 ### Reads
-- `queries.ts` functions call `requireUser()` (verified claims via
-  `getClaims()`), then query with the server Supabase client. RLS does the
-  filtering. Queries also filter by `user_id` explicitly so indexes are used.
+- `queries.ts` functions call `requireUser()` (Neon Auth `getSession()` on
+  the server), then query with Drizzle, filtering on `user_id`.
 - **No `use cache` for user data in v1.** User data always depends on the
   session cookie, and the volume per user is small, so every request reads
   fresh. Pages render a static shell and stream user data inside
@@ -195,19 +227,23 @@ names, following Supabase guidance.
 
 ### Mutations
 - Every Server Action follows the same steps: `requireUser()` → Zod
-  `safeParse` → Supabase write → map errors → `refresh()` from
+  `safeParse` → Drizzle write (a transaction when it touches history or
+  activity) → map errors → `refresh()` from
   `next/cache` (or `redirect()` after create or delete).
 - All actions return the shared `ActionResult` type:
   `{ ok: true, data? } | { ok: false, fieldErrors?, formError? }`.
   Forms consume it with `useActionState`.
-- Postgres errors are mapped in one place (`src/lib/action-result.ts`), e.g.:
+- Postgres errors are mapped in one place (`src/lib/action-result.ts`),
+  reading the code from `error.cause ?? error` because Drizzle wraps `pg`
+  errors, e.g.:
   - `23503` FK violation on stage/document delete → "Used by N applications"
     (the action then queries which ones)
   - `23503` on insert/update → "Invalid stage or document", which also
     covers attempts to reference another user's rows
   - `23505` unique violation → "A stage with that name already exists"
-- Reading another user's row returns no rows under RLS, so actions treat
-  "0 rows affected" as not-found. They never reveal that the row exists.
+- Updates and deletes filter on both `id` and `user_id`, so another user's
+  row affects 0 rows. Actions treat that as not-found and never reveal that
+  the row exists.
 
 ## Time
 
@@ -229,39 +265,48 @@ names, following Supabase guidance.
 
 ## Documents
 
-**Upload goes directly from the browser to Storage**, not through a Server
-Action. Server Actions default to a 1 MB body limit, and Vercel Functions cap
-request bodies at 4.5 MB, so a 10 MB PDF can't go through Next.js.
+Files live in the branch's private `documents` bucket in Neon Object
+Storage (S3-compatible, declared in `neon.ts`). Objects branch with the
+database, so a preview sees production's files as of when it branched and
+its writes never touch production.
+
+**Upload goes directly from the browser to Object Storage**, not through a
+Server Action. Server Actions default to a 1 MB body limit, and Vercel
+Functions cap request bodies at 4.5 MB, so a 10 MB PDF can't go through
+Next.js.
 
 1. A Client Component checks type and size up front (for UX only), then
-   uploads with the browser Supabase client to
-   `documents/{user_id}/{crypto.randomUUID()}.pdf` with `upsert: false`.
-2. It calls the `createDocument({ path, name, kind })` Server Action. The
-   action re-checks the user, checks that `path` starts with their id,
-   confirms the object exists and is ≤ 10 MB, and inserts the `documents`
-   row.
-3. Upload from the application form (US-13) uses the same component, then
+   calls the `startUpload({ kind })` Server Action. The action re-checks the
+   user and returns a presigned POST for the key
+   `{user_id}/{crypto.randomUUID()}.pdf`, valid for 5 minutes, whose policy
+   requires `Content-Type: application/pdf` and a size of at most 10 MB. The
+   size limit is enforced by storage, not just the client.
+2. The browser posts the file to that URL.
+3. It calls the `createDocument({ key, name, kind })` Server Action. The
+   action re-checks the user, checks that `key` starts with their id,
+   confirms the object exists (`HeadObject`) and is ≤ 10 MB, and inserts the
+   `documents` row.
+4. Upload from the application form (US-13) uses the same component, then
    selects the new document.
 
-Storage is configured in a migration:
-- Private bucket `documents`, `file_size_limit = 10MB`,
-  `allowed_mime_types = ['application/pdf']`.
-- `storage.objects` policies for select, insert, and delete where
-  `bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text`.
-- No update policy, so files can't be replaced after upload.
+The S3 client is server-only and reads the branch's `AWS_*` variables.
+Credentials never reach the browser.
 
-Viewing a file: `/documents/[id]/file` loads the row (RLS-scoped), creates a
-60-second signed URL, and redirects to it. Signed URLs never end up in page
-HTML.
+Viewing a file: `/documents/[id]/file` loads the row (scoped to the user),
+creates a 60-second presigned GET, and redirects to it. Presigned URLs never
+end up in page HTML.
 
 Deleting a file: delete the row first (the FK blocks it if the document is
-in use), then remove the object.
+in use), then delete the object.
+
+**To verify before building:** that the bucket accepts browser POSTs (CORS)
+and that the Vercel integration injects the `AWS_*` variables per preview.
 
 **Known gaps, accepted for v1:**
-- An object can be left behind if step 2 fails, or if removal fails after
+- An object can be left behind if step 3 fails, or if removal fails after
   the row is deleted. Nobody but the owner can read it. A cleanup job can
   come later.
-- `allowed_mime_types` trusts the client-declared type. Files are private to
+- The content type is the one the client declares. Files are private to
   their owner, so the risk is low. Magic-byte checking is deferred.
 
 ## CSV export
@@ -297,35 +342,36 @@ Encoding is a pure function in `src/features/export/`:
 
 | Layer | Tool | Location | Covers |
 |---|---|---|---|
-| Pure logic | Vitest | colocated `*.test.ts` | Zod schemas, `time.ts`, reminder/stale rules, CSV encoding, error mapping |
-| Database | pgTAP via `supabase test db` | `supabase/tests/*.test.sql` | RLS for two users on every table, cross-user FK rejection, kind enforcement, delete restrictions, history snapshots, activity triggers (including no-op saves and stage renames not bumping), default stages, storage policies |
+| Pure logic | Vitest (`unit` project) | colocated `*.test.ts` | Zod schemas, `time.ts`, reminder/stale rules, history and activity diffs, CSV encoding, error mapping |
+| Database | Vitest (`db` project) against a Neon branch | colocated `*.db.test.ts` | Two-user isolation for every query and action, cross-user FK rejection, kind enforcement, delete restrictions, history snapshots, activity bumps (including no-op saves and stage renames not bumping), default stages, check constraints |
 | Components | Vitest + Testing Library | colocated `*.test.tsx` | Only where a component has real logic |
 
-New scripts:
-- `pnpm test:db`: `supabase test db`. Needs local Supabase running.
-- `pnpm check` stays Docker-free (lint, typecheck, Vitest) so it works
-  anywhere. Run `pnpm test:db` before calling a schema change done.
+Scripts:
+- `pnpm check`: lint, typecheck, unit tests. No database needed.
+- `pnpm test:db`: db tests against the branch in `DATABASE_URL`. Run it
+  before calling a schema or query change done.
 
-**CI** gets a second job, `db`, that installs the Supabase CLI, starts only
-what tests need, and runs:
-1. `supabase db reset` (applies all migrations + seed)
-2. `supabase test db`
-3. A types drift check: regenerate `src/types/database.ts` and fail if it
-   differs from the committed file
+**CI** has two jobs:
+- `check`: `pnpm check` and `next build` with placeholder env values.
+- `db`:
+  1. Migration drift check: `pnpm db:generate` must not change `drizzle/`.
+  2. Create a Neon branch from `production` that expires in an hour.
+  3. `pnpm db:migrate`, then `pnpm test:db`.
+  4. Delete the branch.
 
 ## Build order
 
-Each step is one or more small PRs, each with its migration, pgTAP tests,
-and regenerated types.
+Each step is one or more small PRs, each with its generated migration and
+db tests, and each tried on its own preview deployment.
 
-1. **Foundation**: `profiles`, `stages`, signup trigger, pgTAP setup,
-   `test:db` script, CI `db` job. (US-1 default stages)
-2. **Applications**: table, history trigger, activity trigger, create/edit/
+1. **Foundation** (done): `profiles`, `stages`, default stages on first
+   sign-in, db tests, CI `db` job, preview branches. (US-1 default stages)
+2. **Applications**: table, history and activity in actions, create/edit/
    close/delete actions, overview with filters and sorting, detail page with
    history. (US-2–9)
 3. **Stage settings**: add/rename/reorder/delete. (US-10)
 4. **Interviews**: table, activity bump, CRUD on the detail page. (US-11)
-5. **Documents**: bucket + policies, table, upload flow, pickers on the
+5. **Documents**: table, presigned upload flow, pickers on the
    application form, delete rules. (US-12–14)
 6. **Follow-ups and reminders**: time zone capture + settings, next action
    UI, reminders and stale highlighting. (US-15–17)

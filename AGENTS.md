@@ -54,6 +54,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Server-side auth checks use `requireUser()` / `getCurrentUser()` (Neon Auth
   `getSession()` on the server). Re-check the user inside every Server Action.
 - `proxy.ts` is an optimistic check only, not authorization.
+- Each Vercel preview has its own Neon branch, migrated during the build.
+  Previews sign in by magic link only; the GitHub button is hidden there.
 - With Cache Components, anything reading cookies (sessions, `requireUser()`)
   must render inside `<Suspense>`; don't await it at a layout's top level.
 - Validate all Server Action input with Zod.
