@@ -62,7 +62,21 @@ export async function signInWithGitHub() {
   redirect(data.url);
 }
 
-export async function signOut() {
-  await auth.signOut();
+export type SignOutState =
+  | { status: "idle" }
+  | { status: "error"; message: string };
+
+// Only redirect once Neon Auth has ended the session and cleared the cookies.
+// On failure (e.g. a network error) the SDK leaves the cookies in place, so
+// redirecting would show /login while the browser is still signed in.
+export async function signOut(_prevState: SignOutState): Promise<SignOutState> {
+  const { error } = await auth.signOut();
+  if (error) {
+    console.error("signOut failed", error);
+    return {
+      status: "error",
+      message: "Couldn't sign out. Check your connection and try again.",
+    };
+  }
   redirect("/login");
 }

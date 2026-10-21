@@ -1,6 +1,5 @@
 import { Suspense } from "react";
-import { Button } from "@/components/ui/button";
-import { signOut } from "@/features/auth/actions";
+import { SignOutButton } from "@/features/auth/components/SignOutButton";
 import { requireUser } from "@/features/auth/queries";
 
 export default function Home() {
@@ -26,11 +25,7 @@ async function Account() {
         Signed in as{" "}
         <span className="font-medium text-foreground">{user.email}</span>
       </p>
-      <form action={signOut}>
-        <Button type="submit" variant="outline">
-          Sign out
-        </Button>
-      </form>
+      <SignOutButton />
     </div>
   );
 }
