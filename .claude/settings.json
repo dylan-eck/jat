@@ -9,7 +9,7 @@
       "Bash(pnpm test *)",
       "Bash(pnpm check)",
       "Bash(pnpm build)",
-      "Bash(pnpm db:types)",
+      "Bash(pnpm db:generate *)",
       "Bash(pnpm exec biome *)",
       "Bash(pnpm exec vitest *)"
     ],

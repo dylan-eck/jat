@@ -16,39 +16,48 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Stack
 - Next.js 16 (App Router, Cache Components on, `src/proxy.ts` not `middleware.ts`)
 - TypeScript strict (+ `noUncheckedIndexedAccess`)
-- Supabase: Postgres + Auth via `@supabase/ssr`; authorization is enforced by RLS
+- Neon Postgres (one branch per Vercel preview) via Drizzle ORM + drizzle-kit
+- Neon Auth (managed Better Auth) via `@neondatabase/auth`: magic link + GitHub
 - Tailwind v4 + shadcn/ui (`src/components/ui`, add with `pnpm dlx shadcn@latest add <name>`)
 - Zod for input validation, Biome for lint/format, Vitest for tests, pnpm
 
 ## Commands
 - `pnpm dev`: dev server at http://localhost:3000
-- `pnpm check`: lint + typecheck + tests. Run before calling a task done.
-- `pnpm test` / `pnpm test:watch`
+- `pnpm check`: lint + typecheck + unit tests. Run before calling a task done.
+- `pnpm test` / `pnpm test:watch`: unit tests (no database)
+- `pnpm test:db`: `*.db.test.ts` against the Neon branch in `DATABASE_URL`.
+  Run before calling a schema or query change done.
 - `pnpm lint:fix`: Biome autofix (Claude Code also runs this on every file it edits, via `.claude/hooks/`)
-- `pnpm db:start` / `pnpm db:stop`: local Supabase (needs Docker)
-- `pnpm db:migration <name>`: new SQL file in `supabase/migrations/`
-- `pnpm db:reset`: reapply all migrations + `supabase/seed.sql` locally
-- `pnpm db:types`: regenerate `src/types/database.ts` after any schema change
+- `pnpm db:generate --name <name>`: new migration in `drizzle/` from `src/lib/db/schema.ts`
+- `pnpm db:migrate`: apply pending migrations to the branch in `DATABASE_URL_UNPOOLED`
+- `pnpm db:studio`: browse the database
 
 ## Layout
 - `src/app/`: routes only; keep pages thin
 - `src/features/<feature>/`: `actions.ts` (Server Actions), `queries.ts` (reads),
-  `schema.ts` (Zod), `components/`, colocated `*.test.ts`
-- `src/lib/supabase/`: `client.ts` (browser), `server.ts` (server), `proxy.ts` (session refresh)
-- `supabase/migrations/`: the only way to change the schema
+  `schema.ts` (Zod), `components/`, colocated `*.test.ts` and `*.db.test.ts`
+- `src/lib/db/`: `schema.ts` (tables), `client.ts` (`db`), `neon-auth.ts` (Neon Auth's user table, read-only)
+- `src/lib/auth/server.ts`: the Neon Auth instance (sessions, sign-in/out, `/api/auth`, proxy)
+- `drizzle/`: generated migrations; the only way to change the schema
+- `src/test/`: db test helpers (`createTestUser`, `pgErrorCode`)
 
 ## Rules
-- Never edit `src/types/database.ts` by hand; run `pnpm db:types`.
-- Never change the schema outside a migration. Every table gets RLS enabled
-  with policies scoped to `auth.uid()` in the same migration.
-- Server-side auth checks use `supabase.auth.getClaims()` (or `getUser()`),
-  never `getSession()`. Re-check the user inside every Server Action.
+- Change the schema only in `src/lib/db/schema.ts`, then `pnpm db:generate`.
+  Never edit generated migrations or `drizzle/meta` by hand, and never touch
+  the `neon_auth` schema.
+- Every table has `user_id` referencing `neon_auth."user"` (cascade). Every
+  query and write is scoped to `requireUser().id`; a row that doesn't match is
+  "not found". References between user rows use composite FKs that include
+  `user_id`, so another user's ids are rejected by the database.
+- Functions that take a user id (e.g. `initializeUser`) live in `server-only`
+  modules, never in `"use server"` files, which are callable from the browser.
+- Server-side auth checks use `requireUser()` / `getCurrentUser()` (Neon Auth
+  `getSession()` on the server). Re-check the user inside every Server Action.
 - `proxy.ts` is an optimistic check only, not authorization.
-- With Cache Components, anything reading cookies (i.e. the Supabase server
-  client) must render inside `<Suspense>`; don't await it at a layout's top level.
+- With Cache Components, anything reading cookies (sessions, `requireUser()`)
+  must render inside `<Suspense>`; don't await it at a layout's top level.
 - Validate all Server Action input with Zod.
-- Never read or print `.env.local` or `supabase/.env`; only the `.env.example`
-  files (root for Next.js, `supabase/` for the Supabase CLI) are committed.
+- Never read or print `.env.local`; only `.env.example` is committed.
 
 ## Git hooks
 

@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth/server";
 import { magicLinkSchema } from "./schema";
 
 export type MagicLinkState =
@@ -10,15 +10,15 @@ export type MagicLinkState =
   | { status: "sent"; email: string }
   | { status: "error"; message: string };
 
-// Build the callback URL from the request so the browser comes back to the
-// same host it started on (localhost vs 127.0.0.1); the PKCE code verifier
-// cookie is only readable there.
-async function callbackUrl() {
+// Build absolute URLs from the request so the browser comes back to the same
+// host it started on (localhost vs 127.0.0.1, or a preview deployment), where
+// its auth cookies live.
+async function appUrl(path: string) {
   const h = await headers();
   const origin =
     h.get("origin") ??
     `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
-  return `${origin}/auth/callback`;
+  return new URL(path, origin).toString();
 }
 
 export async function sendMagicLink(
@@ -33,13 +33,13 @@ export async function sendMagicLink(
     };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
+  const { error } = await auth.signIn.magicLink({
     email: parsed.data.email,
-    options: { emailRedirectTo: await callbackUrl() },
+    callbackURL: await appUrl("/auth/callback"),
+    errorCallbackURL: await appUrl("/login?error=callback"),
   });
   if (error) {
-    console.error("signInWithOtp failed", error);
+    console.error("signIn.magicLink failed", error);
     return {
       status: "error",
       message: "Couldn't send the link. Wait a moment and try again.",
@@ -50,20 +50,19 @@ export async function sendMagicLink(
 }
 
 export async function signInWithGitHub() {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await auth.signIn.social({
     provider: "github",
-    options: { redirectTo: await callbackUrl() },
+    callbackURL: await appUrl("/auth/callback"),
+    errorCallbackURL: await appUrl("/login?error=github"),
   });
-  if (error) {
-    console.error("signInWithOAuth failed", error);
+  if (error || !data?.url) {
+    console.error("signIn.social failed", error);
     redirect("/login?error=github");
   }
   redirect(data.url);
 }
 
 export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  await auth.signOut();
   redirect("/login");
 }

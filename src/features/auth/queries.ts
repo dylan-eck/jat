@@ -1,25 +1,24 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth/server";
 
 export type CurrentUser = {
   id: string;
   email: string | undefined;
 };
 
-// Verifies the session JWT on the server. Never use getSession() here: it
-// trusts the cookie without verifying it.
+// Reads the session on the server: from the signed session-data cookie while
+// it is fresh, otherwise from Neon Auth.
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  // getClaims() checks the token's expiry against the current time, which
+  // The session depends on the request's cookies and the current time, which
   // Cache Components won't allow during prerendering.
   await connection();
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getClaims();
-  if (error || !data) {
+  const { data, error } = await auth.getSession();
+  if (error || !data?.user) {
     return null;
   }
-  return { id: data.claims.sub, email: data.claims.email };
+  return { id: data.user.id, email: data.user.email };
 }
 
 export async function requireUser(): Promise<CurrentUser> {
