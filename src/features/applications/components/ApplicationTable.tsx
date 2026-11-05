@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import {
   Table,
@@ -9,15 +10,24 @@ import {
 } from "@/components/ui/table";
 import { closeReasonLabels, formatDate, statusLabels } from "../format";
 import type { ApplicationListItem } from "../queries";
+import { headerOrder, type OverviewOrder, type SortColumn } from "../schema";
 
-const columns = ["Company", "Role", "Stage", "Status", "Date applied"];
+const columns: { key: SortColumn; label: string }[] = [
+  { key: "company", label: "Company" },
+  { key: "role_title", label: "Role" },
+  { key: "stage", label: "Stage" },
+  { key: "status", label: "Status" },
+  { key: "applied_on", label: "Date applied" },
+];
 
 // A table from md up; stacked rows below md (US-19). Resume and next action
 // columns arrive with documents and follow-ups (US-13, US-15).
 export function ApplicationTable({
   applications,
+  order,
 }: {
   applications: ApplicationListItem[];
+  order: OverviewOrder;
 }) {
   return (
     <>
@@ -47,7 +57,7 @@ export function ApplicationTable({
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               {columns.map((column) => (
-                <TableHead key={column}>{column}</TableHead>
+                <SortableHead key={column.key} column={column} order={order} />
               ))}
             </TableRow>
           </TableHeader>
@@ -96,6 +106,40 @@ export function ApplicationTable({
 
 function applicationHref(id: string) {
   return `/applications/${id}`;
+}
+
+function SortableHead({
+  column,
+  order,
+}: {
+  column: { key: SortColumn; label: string };
+  order: OverviewOrder;
+}) {
+  const active = order.sort === column.key;
+  const Icon = !active
+    ? ArrowUpDown
+    : order.dir === "asc"
+      ? ArrowUp
+      : ArrowDown;
+  return (
+    <TableHead
+      aria-sort={
+        active ? (order.dir === "asc" ? "ascending" : "descending") : undefined
+      }
+    >
+      <Link
+        href={{ pathname: "/", query: headerOrder(column.key, order) }}
+        scroll={false}
+        className="-mx-2 inline-flex items-center gap-1 rounded-md px-2 py-1 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        {column.label}
+        <Icon
+          aria-hidden
+          className={active ? "size-3.5" : "size-3.5 text-muted-foreground"}
+        />
+      </Link>
+    </TableHead>
+  );
 }
 
 function Status({

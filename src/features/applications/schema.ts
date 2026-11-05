@@ -40,3 +40,35 @@ export const createApplicationSchema = z.object({
 });
 
 export type CreateApplicationInput = z.infer<typeof createApplicationSchema>;
+
+// Overview sorting from the URL (?sort=applied_on&dir=desc). Unknown or
+// repeated values fall back to the default instead of erroring, since
+// anyone can edit the URL. Without `sort`, the newest applications come first.
+export const sortColumns = [
+  "company",
+  "role_title",
+  "stage",
+  "status",
+  "applied_on",
+] as const;
+
+export type SortColumn = (typeof sortColumns)[number];
+
+export const overviewSearchParamsSchema = z.object({
+  sort: z.enum(sortColumns).optional().catch(undefined),
+  dir: z.enum(["asc", "desc"]).default("asc").catch("asc"),
+});
+
+export type OverviewOrder = z.infer<typeof overviewSearchParamsSchema>;
+
+// The order a column header links to: ascending first, then reversed on each
+// click.
+export function headerOrder(
+  column: SortColumn,
+  current: OverviewOrder,
+): OverviewOrder {
+  if (current.sort !== column) {
+    return { sort: column, dir: "asc" };
+  }
+  return { sort: column, dir: current.dir === "asc" ? "desc" : "asc" };
+}
