@@ -5,7 +5,7 @@ import { requireUser } from "@/features/auth/queries";
 import { db } from "@/lib/db/client";
 import { applications, stages } from "@/lib/db/schema";
 
-// Minimal list for the overview until the full table lands (#10).
+// Newest first. Sorting by column arrives with #10's sortable headers.
 export async function listApplications() {
   const user = await requireUser();
   return db
@@ -14,6 +14,8 @@ export async function listApplications() {
       company: applications.company,
       roleTitle: applications.roleTitle,
       status: applications.status,
+      closeReason: applications.closeReason,
+      appliedOn: applications.appliedOn,
       stageName: stages.name,
     })
     .from(applications)
