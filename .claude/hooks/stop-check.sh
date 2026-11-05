@@ -28,6 +28,13 @@ if [[ -f "$cache" && $(<"$cache") == "$current" ]]; then
   exit 0
 fi
 
+# pnpm not installed or not on the hook's PATH: warn and let Claude stop,
+# since blocking would only ask Claude to fix something outside the repo.
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "stop-check: pnpm not found on PATH; skipped pnpm check." >&2
+  exit 0
+fi
+
 if ! output=$(pnpm check 2>&1); then
   {
     echo "pnpm check failed. Fix these errors before finishing:"
