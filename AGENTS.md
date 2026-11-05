@@ -61,6 +61,19 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Validate all Server Action input with Zod.
 - Never read or print `.env.local`; only `.env.example` is committed.
 
+## Pull requests
+
+Keep PRs small so each one is quick to review.
+- Aim for under ~300 changed lines, not counting generated files (`drizzle/`,
+  `pnpm-lock.yaml`, `src/components/ui`). If a task will clearly go over, propose
+  a split into a sequence of PRs before writing the code.
+- One concern per PR: don't bundle refactors, renames, or drive-by fixes with a
+  feature. Note them and offer a separate PR.
+- Split along natural seams, e.g. schema + queries + db tests first, then
+  Server Actions, then UI. Each PR must pass `pnpm check` on its own and leave
+  `main` working.
+- If a PR ends up large anyway, say so in the description and explain why.
+
 ## Git hooks
 
 A Husky pre-commit hook (`.husky/pre-commit`) runs Biome and the typecheck.
