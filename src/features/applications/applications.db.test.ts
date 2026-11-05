@@ -186,6 +186,56 @@ describe("listApplications", () => {
       [first.id, "Wishlist"],
     ]);
   });
+
+  describe("sorting", () => {
+    // Inserted oldest first: beta, alpha, Gamma.
+    async function threeApplications() {
+      const userId = await signedInUser();
+      await insertApplication(userId, "Interviewing", {
+        company: "beta",
+        roleTitle: "Designer",
+        appliedOn: "2026-10-01",
+      });
+      await insertApplication(userId, "Wishlist", {
+        company: "alpha",
+        roleTitle: "engineer",
+        status: "closed",
+      });
+      await insertApplication(userId, "Applied", {
+        company: "Gamma",
+        roleTitle: "Analyst",
+        appliedOn: "2026-09-15",
+      });
+    }
+
+    async function companies(order: Parameters<typeof listApplications>[0]) {
+      return (await listApplications(order)).map((a) => a.company);
+    }
+
+    it.each([
+      ["company", "asc", ["alpha", "beta", "Gamma"]],
+      ["company", "desc", ["Gamma", "beta", "alpha"]],
+      ["role_title", "asc", ["Gamma", "beta", "alpha"]],
+      ["stage", "asc", ["alpha", "Gamma", "beta"]],
+      ["stage", "desc", ["beta", "Gamma", "alpha"]],
+      ["status", "asc", ["Gamma", "beta", "alpha"]],
+      ["status", "desc", ["alpha", "Gamma", "beta"]],
+      ["applied_on", "asc", ["Gamma", "beta", "alpha"]],
+      ["applied_on", "desc", ["beta", "Gamma", "alpha"]],
+    ] as const)("sorts by %s %s", async (sort, dir, expected) => {
+      await threeApplications();
+      expect(await companies({ sort, dir })).toEqual(expected);
+    });
+
+    it("lists the newest first without a sort column", async () => {
+      await threeApplications();
+      expect(await companies({ dir: "desc" })).toEqual([
+        "Gamma",
+        "alpha",
+        "beta",
+      ]);
+    });
+  });
 });
 
 describe("getApplication", () => {

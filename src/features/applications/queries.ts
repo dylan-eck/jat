@@ -1,12 +1,38 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireUser } from "@/features/auth/queries";
 import { db } from "@/lib/db/client";
 import { applications, stages } from "@/lib/db/schema";
+import type { OverviewOrder, SortColumn } from "./schema";
 
-// Newest first. Sorting by column arrives with #10's sortable headers.
-export async function listApplications() {
+// Text sorts ignore case, and stages sort in the user's stage order rather
+// than by name.
+const sortExpressions: Record<SortColumn, SQL> = {
+  company: sql`lower(${applications.company})`,
+  role_title: sql`lower(${applications.roleTitle})`,
+  stage: sql`${stages.position}`,
+  status: sql`${applications.status}`,
+  applied_on: sql`${applications.appliedOn}`,
+};
+
+// Rows without a value (no date applied yet) go last in both directions.
+// Ties, and the default order, put the newest applications first.
+function orderBy({ sort, dir }: OverviewOrder): SQL[] {
+  const newestFirst = [desc(applications.createdAt), desc(applications.id)];
+  if (!sort) {
+    return newestFirst;
+  }
+  const expression = sortExpressions[sort];
+  return [
+    dir === "asc"
+      ? sql`${expression} asc nulls last`
+      : sql`${expression} desc nulls last`,
+    ...newestFirst,
+  ];
+}
+
+export async function listApplications(order: OverviewOrder = { dir: "asc" }) {
   const user = await requireUser();
   return db
     .select({
@@ -21,7 +47,7 @@ export async function listApplications() {
     .from(applications)
     .innerJoin(stages, eq(stages.id, applications.stageId))
     .where(eq(applications.userId, user.id))
-    .orderBy(desc(applications.createdAt), desc(applications.id));
+    .orderBy(...orderBy(order));
 }
 
 export type ApplicationListItem = Awaited<
